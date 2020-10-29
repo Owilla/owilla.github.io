@@ -1,0 +1,306 @@
+<!DOCTYPE>
+
+<html>
+
+<head>
+  <title>cytoscape-d3-force.js drifting issue demo</title>
+
+  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1, maximum-scale=1">
+
+  <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
+
+  <!-- for testing with local version of cytoscape.js -->
+  <!--<script src="../cytoscape.js/build/cytoscape.js"></script>-->
+  <script src="https://d3js.org/d3-dispatch.v1.min.js"></script>
+  <script src="https://d3js.org/d3-quadtree.v1.min.js"></script>
+  <script src="https://d3js.org/d3-timer.v1.min.js"></script>
+  <script src="https://d3js.org/d3-force.v2.min.js"></script>
+  <script>
+    window['d3-force'] = d3
+  </script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/cytoscape-d3-force@1.1.4/cytoscape-d3-force.min.js"></script> -->
+  <script src="cytoscape-d3-force.js"></script>
+  <script src="https://unpkg.com/webcola/WebCola/cola.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.3.1/cytoscape-cola.min.js"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/cytoscape-node-html-label@1.2.0/dist/cytoscape-node-html-label.min.js"></script> -->
+  <script src="cytoscape-node-html-label.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-expand-collapse@4.0.0/cytoscape-expand-collapse.js"></script>
+
+
+  <style>
+    body {
+      font-family: helvetica neue, helvetica, liberation sans, arial, sans-serif;
+      font-size: 14px;
+    }
+
+    #cy {
+      z-index: 999;
+      width: 85%;
+      height: 85%;
+      float: left;
+    }
+
+    h1 {
+      opacity: 0.5;
+      font-size: 1em;
+      font-weight: bold;
+    }
+
+    .corner {
+      border-radius: 50%;
+      width: 10px;
+      height: 10px;
+      padding: 0px;
+      background: red;
+      color: white;
+      text-align: center;
+      font: 8px Arial, sans-serif;
+    }
+  </style>
+
+  <script>
+    const group = ['hospital', 'clothes', 'computer', 'person', 'flower', 'tree', 'desk', 'house', 'water', 'cup']
+    const edgegroup = ['has', 'goto', 'love']
+    const year = ['2017', '2018', '2019']
+    const MAX_Y = 800
+    const MAX_X = 1500
+    function createId(salt, randomLength = 8) {
+      return (
+        (salt || '') +
+        Number(
+          Math.random()
+            .toString()
+            .substr(3, randomLength) + Date.now()
+        ).toString(36)
+      )
+    }
+    function createNodes(num) {
+      let datas = []
+      for (let i = 0; i < num; i++) {
+        let _groupId = group[Math.floor(Math.random() * group.length)]
+        let data = {
+          id: createId('node_'),
+          position: {
+            x: Math.random() * MAX_X,
+            y: Math.random() * MAX_Y,
+          },
+          group: _groupId,
+          parent: _groupId
+        }
+        data.label = data.group + '-node' + i
+        data.corner = i
+        datas.push({
+          group: 'nodes',
+          data,
+          id: data.id
+        })
+      }
+      return datas
+    }
+    function createParent(nodes) {
+      let _parents = Array.from(new Set(nodes.map(node => node.data.group))).filter(p => !nodes.find(node => node.data.id === p) && p !== 'person')
+      return _parents.map(p => {
+        return {
+          group: 'nodes',
+          data: {
+            id: p,
+            label: p
+          },
+          id: p
+        }
+      })
+    }
+    function createEdges(nodes, num) {
+
+      let edges = []
+      for (let i = 0; i < num - 1; i++) {
+        let target = nodes[i + 1].data.id
+        let source = nodes[Math.floor(Math.sqrt(i))].data.id
+        let edge = {
+          target,
+          source,
+          id: createId('edge_'),
+          group: edgegroup[Math.floor(Math.random() * edgegroup.length)],
+          time: year[Math.floor(Math.random() * year.length)] + '-' + Math.ceil(Math.random() * 12) + '-' + Math.ceil(Math.random() * 30)
+        }
+        edge.label = 'edge' + i
+        edge.name = 'edge' + i
+
+        edges.push({
+          data: edge,
+          group: 'edges',
+          id: edge.id
+        })
+      }
+      return edges
+    }
+    function createEdgesFromId(nodes, id) {
+      let edges = nodes.map(node => {
+        return {
+          group: 'edges',
+          data: {
+            target: node.data.id,
+            source: id,
+            id: createId('edge_'),
+            group: edgegroup[Math.floor(Math.random() * edgegroup.length)],
+            label: node.data.id + '-' + id,
+            name: node.data.id + '-' + id
+          }
+        }
+      })
+      return edges
+    }
+    function createData(num) {
+      let nodes = createNodes(num)
+      let edges = createEdges(nodes, num)
+      return nodes.concat(edges)// .concat(createParent(nodes))
+    }
+    function createChildren(id, num) {
+      let nodes = createNodes(num)
+      let edges = createEdgesFromId(nodes, id)
+      return nodes.concat(edges)
+    }
+
+    // add nodes connected to a specific node
+    function addNodes(source, num) {
+      let nodes = createNodes(num)
+      let edges = createEdgesFromId(nodes, source)
+      return nodes.concat(edges)
+    }
+
+    // switch between d3-force and cola
+    function getLayout(time, layout = 'd3') {
+      if (layout === 'cola') {
+        return {
+          name: "cola",
+          avoidOverlap: false,
+          maxSimulationTime: time, // layout run for time then stop
+        }
+      } else {
+        return {
+          name: 'd3-force',
+          animate: true,
+          fixedAfterDragging: false,
+          linkId: function id(d) {
+            return d.id;
+          },
+          linkDistance: 80,
+          manyBodyStrength: -300,
+          ready: function () { },
+          stop: function () { },
+          randomize: false,
+          infinite: false,
+          maxSimulationTime: time,
+          // some more options here...
+        }
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      // default layout d3-force
+      let layout = 'd3'
+
+      var cy = window.cy = cytoscape({
+        container: document.getElementById('cy'),
+
+        // demo your layout
+        layout: getLayout(3000, layout),
+
+        style: [
+          {
+            selector: 'edge',
+            style: {
+              'curve-style': 'bezier',
+              'target-arrow-shape': 'triangle'
+            }
+          }
+        ],
+
+        elements: createData(100),
+        wheelSensitivity: 0.5,
+      });
+
+      cy.nodeHtmlLabel([
+        {
+          query: 'node',
+          cssClass: 'cy-title',
+          halign: 'right', // title vertical position. Can be 'left',''center, 'right'
+          valign: 'center', // title vertical position. Can be 'top',''center, 'bottom'
+          halignBox: 'center', // title vertical position. Can be 'left',''center, 'right'
+          valignBox: 'top', // title relative box vertical position. Can be 'top',''center, 'bottom'
+          tpl: function (data) {
+            return '<p class="corner">' + data.corner + '</p>'
+          }
+        },
+      ]);
+
+      var expand_collapse = cy.expandCollapse({
+        fisheye: false,
+        animate: false, //animation is diabled as slow animation cause slow data retrieving
+        undoable: false, // undo for basic expand/collapse is disabled as they interfere with higher level functions
+        edgeTypeInfo: "edgeType",
+        cueEnabled: true
+      });
+
+      document.getElementById("addNodes").addEventListener("click", function () {
+        randomNode = Math.floor(Math.random() * 100)
+        let newNodes = addNodes(cy.nodes()[randomNode].id(), 10)
+        cy.elements().lock()
+        cy.add(newNodes)
+        cy.elements().layout(getLayout(10000, layout)).run()
+      });
+
+      document.getElementById("runLayout").addEventListener("click", function () {
+        cy.layout(getLayout(3000, layout)).run()
+      });
+
+      document.getElementById("switchLayout").addEventListener("click", function () {
+        if (layout === 'cola') {
+          this.textContent = 'Switch to cola (now d3-force)'
+          layout = 'd3'
+          cy.layout(getLayout(3000, layout)).run()
+        } else {
+          this.textContent = 'Switch to d3-force (now cola)'
+          layout = 'cola'
+          cy.layout(getLayout(3000, layout)).run()
+        }
+      });
+
+      document.getElementById("collapseNode").addEventListener("click", function () {
+        let ele2 = cy.nodes()[30]
+        ele2.remove()
+        cy.$(':selected').unselect()
+      
+        let ele1 = cy.nodes().slice(0,10)
+        let parent = cy.add({
+          data: {
+          id: Date.now(),
+          label: "this is a parent",
+        },
+          classes: 'parent'
+        })
+
+        ele1.move({ parent: parent.id() })
+        expand_collapse.collapse(parent)
+        console.log(ele1.jsons())
+
+        let ele3 = cy.nodes()[39]
+        ele3.remove()
+        cy.$(':selected').unselect()
+      });
+    });
+  </script>
+</head>
+
+<body>
+  <h1>cytoscape-d3-force drifting issue demo</h1>
+  <b id="addNodes" style="cursor: pointer;color: darkred">Add nodes to random node</b> / <b id="runLayout"
+    style="cursor: pointer; color: darkslateblue">Run layout on full graph</b> / <b id="switchLayout"
+    style="cursor: pointer; color: darkmagenta">Switch to cola (now d3-force)</b> /
+    <b id="collapseNode" style="cursor: pointer;color: darkgreen">collapse 2 random nodes</b>
+
+  <div id="cy"></div>
+
+</body>
+
+</html>
